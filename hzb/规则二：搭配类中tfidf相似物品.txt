@@ -1,0 +1,25 @@
+测试商品T 属于类1，专家搭配中类1与类2,3搭配，则找出类2,3中所有与T相似物品作为搭配
+--drop table if exists test_not_in_history_tfidf_vec;
+create table if not exists test_not_in_history_tfidf_vec
+as select a.item,b.cat_id as cat,b.vec ,b.mod from test_not_in_history a join dim_items_tfidf b on a.item=b.item_id;
+--select * from test_not_in_history_vec limit 5;
+
+--drop table if exists test_matchcat;
+create table if not exists test_matchcat as
+select a.*,b.cat2 as match_cat from test_not_in_history_tfidf_vec a join matchcat b on a.cat =b.cat1;
+
+
+--create table if not exists test_matchitem as select /* + mapjoin(a) */ a.*,b.item_id as match_item,b.vec as match_vec,b.mod as match_mod
+--from test_matchcat a join dim_items_tfidf b on a.match_cat =b.cat_id;
+
+
+--create table if not exists test_matchitem_sim as select item,match_item,cast(cal_tfidf_sim(vec,match_vec,mod,match_mod) as double) as sim from test_matchitem;
+
+
+drop table if exists test_all_sim_top200;
+create table if not exists test_all_sim_top200 as select item as titem,match_item as mitem,sim as match_value,row_num from 
+(select  item,match_item,sim, row_number() over (partition by item order by sim desc)  as row_num from 
+(select * from test_matchitem_sim where sim>0.1 and item<>match_item) a ) t where row_num<=200;
+
+select * from test_all_sim_top200;
+select count(distinct titem,match_value) from test_all_sim_top200  where row_num=200;

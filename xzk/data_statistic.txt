@@ -1,0 +1,110 @@
+--odps sql 
+--********************************************************************--
+--author:xuzeke
+--create time:2015-11-05 13:28:21
+--********************************************************************--
+--------------------------------------------------------------------------------
+                                  --项目表--
+--------------------------------------------------------------------------------
+----tianchi_fm.dim_items:item_id,cat_id,terms,img_data
+----3269988 item(1-3269988);647 cat(1-647);
+select * from tianchi_fm.dim_items;
+select count(*) from tianchi_fm.dim_items;
+select count(*) from(select distinct cat_id from tianchi_fm.dim_items)a;
+
+----tianchi_fm.dim_fashion_match_sets:coll_id,item_list
+----158318 match set;
+select * from tianchi_fm.dim_fashion_match_sets;
+select count(*) from tianchi_fm.dim_fashion_match_sets;
+
+----tianchi_fm.user_bought_history:user_id,item_id,create_at
+----728318569 data;12805706 user;3017294 item
+select * from tianchi_fm.user_bought_history;
+select count(*) from tianchi_fm.user_bought_history;
+select count(*) from(select distinct user_id from tianchi_fm.user_bought_history)a;
+select count(*) from(select distinct item_id from tianchi_fm.user_bought_history)a;
+
+----tianchi_fm.test_items:item_id
+----76442 item(32827 in history data;43615 not in)
+select * from tianchi_fm.test_items;
+select count(*) from tianchi_fm.test_items;
+--------------------------------------------------------------------------------
+                                --自建表--
+--------------------------------------------------------------------------------
+--cat_distribute_xzk:cat,num
+--647 data
+drop table if exists cat_distribute_xzk;
+create table cat_distribute_xzk as select cat_id as cat,count(item_id) as num from tianchi_fm.dim_items group by cat_id;
+select * from cat_distribute_xzk;
+select count(*) from cat_distribute_xzk;
+
+--item_img_xzk:item_id,img_data
+--3269988 data
+drop table if exists item_img_xzk;
+create table item_img_xzk as select item_id,img_data from tianchi_fm.dim_items;
+select count(*) from item_img_xzk;
+
+--testItem_not_in_history_xzk:item
+--43615 item
+drop table if exists testItem_not_in_history_xzk;
+create table testItem_not_in_history_xzk as select distinct item from 
+(select a.item_id as item,(case when b.create_at>0 then 1 else 0 end) as flag from 
+tianchi_fm.test_items a left outer join tianchi_fm.user_bought_history b on a.item_id=b.item_id) t where flag=0;
+select count(*) from testItem_not_in_history_xzk;
+
+--testItem_in_history_xzk:item
+--32827 item
+drop table if exists testItem_in_history_xzk;
+create table testItem_in_history_xzk as select distinct item from 
+(select a.item_id as item,(case when b.create_at>0 then 1 else 0 end) as flag from 
+tianchi_fm.test_items a left outer join tianchi_fm.user_bought_history b on a.item_id=b.item_id) t where flag=1;
+select count(*) from testItem_in_history_xzk;
+
+--matchpairs:item1,item2,count
+--1052044 pair
+drop table if exists matchpairs;
+create table matchpairs as select distinct item1,item2,count from 
+(select (case when item1>item2 then item1 else item2 end)as item1,
+        (case when item1>item2 then item2 else item1 end)as item2,count from matchpairs2)a;
+select count(*) from matchpairs;
+
+----dim_items_tfidf:item_id,vec,mod,cat_id,sales
+----3269981 item
+select * from dim_items_tfidf limit 100;
+select count(*) from dim_items_tfidf;
+
+----dim_items_cnn:item_id,cat_id,terms,img_data,vec
+----3269988 item
+select * from dim_items_cnn limit 10;
+select count(*) from dim_items_cnn;
+
+----dim_items_detail:item_id,vec,mod,cat_id,sales,tfidf_vec,tfidf_mod
+----3269847 item
+select * from dim_items_detail limit 10;
+select count(*) from dim_items_detail;
+
+----dim_items_w2v:item_id,vec,mod,cat_id,sales
+----3269847 item
+select * from dim_items_w2v limit 10;
+select count(*) from dim_items_w2v;
+
+----dim_items_w2v2:item_id,vec,mod,cat_id,sales
+----3269981 item
+select * from dim_items_w2v2 limit 10;
+select count(*) from dim_items_w2v2;
+
+----matchpairs2:item1,item2,count
+----2104088 match pair
+select * from matchpairs2;
+select count(*) from matchpairs2;
+
+----items_in_matchpairs:item
+----243934 item
+select * from items_in_matchpairs;
+select count(*) from items_in_matchpairs;
+
+--matchcat:cat1,cat2，count
+--2635 data
+select * from matchcat;
+select count(*) from matchcat;
+-----------------------------------------------------------------------------

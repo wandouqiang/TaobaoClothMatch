@@ -1,0 +1,113 @@
+drop table if exists pairs_neg2;
+create table if not exists pairs_neg2 as select * from pairs_neg order by rand() limit 1000000;
+drop table if exists pairs_offline;
+create table if not exists pairs_offline as select * from
+(
+select  item1,item2,1 as label from pairs_pos
+union all
+select item1,item2,0 as label from pairs_neg2
+union all
+select titem as item1,mitem as item2,3 as label from val_all_sim_top500)t;
+
+drop table if exists cat_feat_offline;
+create table cat_feat_offline as select c.*,d.cat_id as cat2 from
+(select a.*,b.cat_id as cat1 from (select distinct item1,item2,label from pairs_offline) a join tianchi_fm.dim_items b on a.item1 = b.item_id)c
+join tianchi_fm.dim_items d on c.item2 = d.item_id;
+
+drop table if exists cat_num_feat_offline;
+create table cat_num_feat_offline as select c.*,d.num as cat2_num from
+(select a.*,b.num as cat1_num from cat_feat_offline a join cat_distribute_xzk b on a.cat1 = b.cat)c
+join cat_distribute_xzk d on c.cat2 = d.cat;
+
+drop table if exists term1_feat_offline;
+create table term1_feat_offline as select c.*,(case when c.1st=f.1st then 1 else 0 end)as terms1_if_equal from
+(select a.*,b.1st from cat_num_feat_offline a join item_first_term b on a.item1 = b.item_id)c
+join  item_first_term f
+on c.item2 = f.item_id;
+
+drop table if exists feat_detail_offline_1;
+create table feat_detail_offline_1 as select c.item1,c.item2,c.label,
+c.cat1,c.cat2,c.cat1_num,c.cat2_num,c.terms1_if_equal,c.vec as tfidf_vec1,f.vec as tfidf_vec2,c.mod as tfidf_mod1,f.mod as tfidf_mod2 from
+(select a.*,b.vec,b.mod from term1_feat_offline a join dim_items_tfidf b on a.item1 = b.item_id)c
+join 
+dim_items_tfidf f
+on c.item2 = f.item_id;
+
+drop table if exists feat_detail_offline_2;
+create table feat_detail_offline_2 as select c.*,f.vec as w2v_vec2,f.mod as w2v_mod2 from
+(select a.*,b.vec as w2v_vec1,b.mod as w2v_mod1 from feat_detail_offline_1 a join dim_items_w2v2 b on a.item1 = b.item_id)c
+join 
+dim_items_w2v2 f
+on c.item2 = f.item_id;
+
+drop table if exists feat_detail_offline_3;
+create table feat_detail_offline_3 as select c.*,f.vec as img_vec2,f.terms as terms2 from
+(select a.*,b.vec as img_vec1 ,b.terms as terms1 from feat_detail_offline_2 a join dim_items_cnn b on a.item1 = b.item_id)c
+join 
+dim_items_cnn f
+on c.item2 = f.item_id;
+
+drop table if exists feat_offline;
+create table  feat_offline as select item1,item2,label,
+cat1,cat2,cat1_num,cat2_num, terms1_if_equal,
+ (1-cast(item_dis(img_vec1,img_vec2,"0","o") as double )/7150613) as img_o,
+    cast(item_dis(img_vec1,img_vec2,"0","c") as double ) as img_c,
+   
+    cast(item_dis(img_vec1,img_vec2,"0","m") as double ) as img_m,
+    cast(item_dis(img_vec1,img_vec2,"0","q") as double ) as img_q,
+    cast(item_dis(img_vec1,img_vec2,"0","a") as double ) as img_a,
+    cast(item_dis(img_vec1,img_vec2,"0","i") as double ) as img_i,
+(1-cast(item_dis(tfidf_vec1,tfidf_vec2,"1","o") as double )/10) as tfidf_o,
+    cast(item_dis(tfidf_vec1,tfidf_vec2,"1","c") as double ) as tfidf_c,
+   
+    cast(item_dis(tfidf_vec1,tfidf_vec2,"1","m") as double ) as tfidf_m,
+    cast(item_dis(tfidf_vec1,tfidf_vec2,"1","q") as double ) as tfidf_q,
+    cast(item_dis(tfidf_vec1,tfidf_vec2,"1","a") as double ) as tfidf_a,
+    cast(item_dis(tfidf_vec1,tfidf_vec2,"1","i") as double ) as tfidf_i,
+(1-cast(item_dis(w2v_vec1,w2v_vec2,"0","o") as double )/55) as w2v_o,
+    cast(item_dis(w2v_vec1,w2v_vec2,"0","c") as double ) as w2v_c,
+   cast(item_dis(w2v_vec1,w2v_vec2,"0","p") as double ) as w2v_p,
+    cast(item_dis(w2v_vec1,w2v_vec2,"0","m") as double ) as w2v_m,
+    cast(item_dis(w2v_vec1,w2v_vec2,"0","q") as double ) as w2v_q,
+     cast(item_dis(w2v_vec1,w2v_vec2,"0","a") as double ) as w2v_a,
+      cast(item_dis(w2v_vec1,w2v_vec2,"0","i") as double ) as w2v_i,
+    cast(minhash_sim(terms1,terms2,"0") as double ) as t0,
+    cast(minhash_sim(terms1,terms2,"1") as double ) as t1,
+    cast(minhash_sim(terms1,terms2,"2") as double ) as t2,
+    cast(minhash_sim(terms1,terms2,"3") as double ) as t3,
+    cast(same_terms_rate(terms1,terms2) as double) as rate1,
+cast(same_terms_rate(terms2,terms1) as double) as rate2
+from feat_detail_offline_3;
+
+
+--drop table if exists feat_offline2;
+--create table feat_offline2 as select *,s1*s2 as m12,s1*s3 as m13 ,s1*s4  as m14,s1*s5  as m15,s1*s6  as m16,s1*s7 as m17,s2*s3 as m23,s2*s4 as m24,s2*s5 as m25,s2*s6 as m26,s2*s7 as m27,
+--s3*s4 as m34,s3*s5 as m35,s3*s6 as m36,s3*s7 as m37,s4*s5 as m45,s4*s6 as m46,s4*s7 as m47,s5*s6 as m56,s5*s7 as m57,s6*s7 as m67 from feat_offline1;
+--drop table if exists feat_offline_1;
+--create table  feat_offline_1 as select * from
+--(select * from feat_offline where label=1
+--union all
+---select * from ( select * from feat_offline where label=0) t order by rand()  limit 1000000
+--)t;
+
+
+drop table if exists gbdt_train_input_1206;
+create table gbdt_train_input_1206 as select * from feat_offline where label=0 or label=1;
+--74237  104237 2074309
+select count(*) from gbdt_train_input_1206;
+
+drop table if exists gbdt_subtrain_input_1206;
+create table gbdt_subtrain_input_1206 as select * from 
+(select c.*,(case when d.item>0 then 1 else 0 end) as flag2 from 
+(select a.*,(case when b.item>0 then 1 else 0 end) as flag1 from gbdt_train_input_1206 a left outer join valItem_xzk b on a.item1=b.item) c
+left outer join valItem_xzk d on c.item2=d.item)t where flag1=0 and flag2=0;
+--67539  1906339
+select count(*) from gbdt_subtrain_input_1206;
+
+drop table if exists gbdt_val_input_1206;
+create table if not exists gbdt_val_input_1206 as select * from feat_offline where label=3;
+--1525888 3821008
+select count(*) from gbdt_val_input_1206;
+
+
+

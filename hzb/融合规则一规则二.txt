@@ -1,0 +1,78 @@
+--根据模型预测结果为规则二重新排序
+drop table if exists test_all_sim_predict;
+create table test_all_sim_predict as select  a.item1 as titem,a.item2 as mitem,
+(case when a.prediction_result=1 and b.prediction_result=1 then  0.6*a.prediction_score+0.4*b.prediction_score 
+ when a.prediction_result=1 and b.prediction_result=0      then  0.6*a.prediction_score+0.4*(1-b.prediction_score) 
+ when a.prediction_result=0 and b.prediction_result=1      then  0.6*(1-a.prediction_score)+0.4*b.prediction_score 
+                                                           else 0.6*(1-a.prediction_score)+0.4*(1-b.prediction_score)  end) as match_value 
+from gbdt_val_output_hzb a join nb_val_output_hzb b on a.item1=b.item1 and a.item2=b.item2;
+
+drop table if exists test_all_sim_predict_sort;
+create table if not exists test_all_sim_predict_sort 
+as select titem,mitem,match_value,row_number() over(partition by titem order by match_value desc) as row_num from
+test_all_sim_predict;
+select * from test_all_sim_predict_sort limit 10;
+select count(*) from test_all_sim_predict_sort;
+select count(distinct titem) from test_all_sim_predict_sort;
+--将tfidf相似图像向量均相似的顶到前面
+--drop table if exists test_mp_sim_top200_12_6;
+create table if not exists test_mp_sim_top200_12_6 as 
+select a.titem,a.mitem,a.sim1,(case when b.mitem>0 then a.match_value+1 else a.match_value end) as match_value from test_mp_sim_top200 a left outer join 
+(select * from test_mp_img_sim where row_num<=300) b on a.titem=b.titem and a.mitem=b.mitem;
+
+
+
+--drop table if exists test_mp_mix_sim_top200_12_6;
+create table if not exists test_mp_mix_sim_top200_12_6 as  select  titem,mitem,sim1,match_value, row_number() over (partition by titem order by match_value desc)  as row_num
+from test_mp_sim_top200_12_6 ;
+
+
+--test_mp_sim_top200_12_2
+--select * from test_mp_sim_top200_12_2
+
+drop table if exists test_mp_sim_top150_12_6;
+create table if not exists test_mp_sim_top150_12_6 as select * from  test_mp_mix_sim_top200_12_6 where row_num<=120;
+
+
+--drop table if exists test_all_sim_top150_model;
+create table if not exists test_all_sim_top150_model as select * from  test_all_sim_predict_sort where row_num<=150;
+
+select avg(match_value) as mp from test_mp_sim_top150_12_6;
+--select avg(match_value) as allp from test_all_sim_top150_model;
+
+select STDDEV(match_value) from test_mp_sim_top150_12_6;
+--融合方式(x-mean)/std
+drop table if exists test_mix_12_6;
+create table if not exists test_mix_12_6 
+as select * from (
+select titem,mitem,(match_value-0.7562)/0.28 as match_value ,1 as flag from test_mp_sim_top150_12_6
+union all 
+select titem,mitem,(match_value-0.2111)/0.1644 as match_value,0 as flag from test_all_sim_top150_model )t;
+
+drop table if exists test_mix_final_12_6;
+create table if not exists test_mix_final_12_6 as
+select titem,mitem,(max(match_value)+count(match_value)) as match_value,min(flag) as flag from test_mix_12_6 group by titem,mitem ;
+
+drop table if exists test_mix_final_sorted_12_6;
+create table if not exists test_mix_final_sorted_12_6 as 
+select  titem,mitem,match_value, flag,row_number() over (partition by titem order by match_value desc)  as row_num from test_mix_final_12_6 ;
+
+--select * from test_mix_final_sorted;
+
+--与历史记录融合
+--create table test_mp_all_fixed as select a.titem,a.mitem,(case when b.match_value>0 then b.match_value-0.0000001 else a.match_value) as match_value
+--from test_mix_final_sorted a left outer join t
+
+drop table if exists test_mix_itemlist_12_6;
+create table if not exists test_mix_itemlist_12_6 as 
+select titem as item_id, split_part(wm_concat(',',mitem),',',1,200) as item_list
+from test_mix_final_sorted_12_6 
+group by titem;
+
+drop table if exists fm_submissions;
+create table fm_submissions as select a.item_id,(case when b.item_id>0 then b.item_list
+ else a.item_list end) as item_list from test_mix_itemlist_12_6 a left outer join  submit_online_xzk  b on a.item_id=b.item_id;
+select count(*) from fm_submissions;
+
+select * from fm_submissions;
+select count(distinct item_id) from fm_submissions

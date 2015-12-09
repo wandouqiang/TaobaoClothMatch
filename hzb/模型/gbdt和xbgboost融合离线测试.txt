@@ -1,0 +1,46 @@
+--odps sql 
+--********************************************************************--
+--author:h×¿±ò
+--create time:2015-12-04 12:38:58
+--********************************************************************--
+drop table if exists score1;
+create table score1 as select  a.item1,a.item2,
+(case when a.prediction_result=1 and b.prediction_result=1 then  0.5*a.prediction_score+0.5*b.prediction_score 
+ when a.prediction_result=1 and b.prediction_result=0      then  0.5*a.prediction_score+0.5*(1-b.prediction_score) 
+ when a.prediction_result=0 and b.prediction_result=1      then  0.5*(1-a.prediction_score)+0.5*b.prediction_score 
+                                                           else 0.5*(1-a.prediction_score)+0.5*(1-b.prediction_score)  end) as prediction_score 
+from gbdt_val_output_hzb a join nb_val_output_hzb b on a.item1=b.item1 and a.item2=b.item2;
+
+--drop table if exists score2;
+--create table score2 as select  a.item1,a.item2,
+--(case when b.prediction_result=1 then  a.prediction_score+0.5*b.prediction_score 
+--   else a.prediction_score+0.5*(1-b.prediction_score)  end) as prediction_score 
+--from score1 a join nb_val_output_hzb b on a.item1=b.item1 and a.item2=b.item2;
+
+
+drop table if exists mix_val_all_sim_predict_sort;
+create table if not exists mix_val_all_sim_predict_sort 
+as select titem,mitem,row_number() over(partition by titem order by match_value desc) as row_num from
+(select   a.titem,a.mitem,b.prediction_score as match_value from 
+(select * from val_all_sim_top500 where row_num<=500) a join score1 b on a.titem=b.item1 and a.mitem=b.item2) t;
+
+drop table if exists mix_val_all_sim_predict_list;
+create table if not exists mix_val_all_sim_predict_list as 
+select titem as item_id, split_part(wm_concat(',',mitem),',',1,100) as item_list
+from mix_val_all_sim_predict_sort 
+group by titem;
+
+
+
+---val_all_sim_list  before  0.032788
+
+
+select sum(score)/7643.0 from
+(
+select a.item_id,cast(mapscore(a.item_list,b.item_list) as double) as score 
+from mix_val_all_sim_predict_list a join valAnswer_xzk b on a.item_id = b.item_id
+)c;
+
+---14 feature 3.409
+---move cnn 3.469
+

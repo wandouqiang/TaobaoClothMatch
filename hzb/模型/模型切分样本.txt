@@ -1,0 +1,78 @@
+--odps sql 
+--********************************************************************--
+--author:h卓彬
+--create time:2015-12-03 14:54:24
+--********************************************************************--
+--valItem_xzk  items_in_matchpairs_train 
+
+--所有正样本 matchpairs pairs_neg
+--39342953 data
+--drop table if exists pairs_neg;
+
+ --select count(*) from  pairs_neg;
+
+--drop table if exists test_cat;
+create table if not exists  test_cat as select distinct b.cat_id as cat 
+from tianchi_fm.test_items a join tianchi_fm.dim_items b on a.item_id = b.item_id;
+--151125 item
+--drop table if exists sameCat_item_in_matchpairs;
+create table if not exists sameCat_item_in_matchpairs as select c.item from 
+(select a.item,b.cat_id from items_in_matchpairs a join tianchi_fm.dim_items b on a.item = b.item_id)c
+join 
+test_cat d on c.cat_id = d.cat;
+
+create table if not exists mp_mp_sim_top500  as select item as titem,match_item as mitem,sim as match_value,row_num from 
+(select  item,match_item,sim, row_number() over (partition by item order by sim desc)  as row_num from 
+(select * from mp_mp_sim where sim>0.1 and item<>match_item) a ) t where row_num<=500;
+
+drop table if exists relatepairs;
+create table if not exists relatepairs as select distinct item1,item2 from
+(select a.item1,b.item2 from matchpairs2 a join matchpairs2 b on a.item2=b.item1 where a.item1<>b.item2) t;
+
+--68520291
+--select count(*) from relatepairs;
+
+drop table if exists samples_all;
+create table if not exists samples_all  as select c.item1,c.item2,c.flag from 
+(select a.titem as item1,a.mitem as item2,(case when b.item1>0 then 1 else 0 end ) as flag from 
+mp_mp_sim_top500 a
+left outer join matchpairs2 b on a.titem=b.item1 and a.mitem=b.item2 ) c join sameCat_item_in_matchpairs d on c.item1=d.item;
+select count(*) from samples_all;
+-- 638523
+
+
+drop table if exists pairs_pos ;
+create table if not exists pairs_pos as select * from
+(select a.item1,a.item2 from matchpairs2 a join sameCat_item_in_matchpairs b on a.item1=b.item
+union all 
+select item1,item2 from samples_all where flag=1)t;
+--1173272
+select count(*) from pairs_pos;
+
+
+---74086683
+drop table if exists pairs_neg ;
+create table if not exists pairs_neg as 
+select item1,item2 from (select a.*,(case when b.item1>0 then 1 else 0 end ) as flag from 
+(select item1,item2 from samples_all where flag=0) a left outer join relatepairs b on a.item1=b.item1 and a.item2=b.item2) t where flag=0 ;
+
+select count(*) from pairs_neg;
+
+drop table if exists pairs_neg2;
+create table if not exists pairs_neg2 as select * from pairs_neg order by rand() limit 30000;
+
+
+drop table if exists test_all_sim_top500;
+create table if not exists test_all_sim_top500  as select item as titem,match_item as mitem,sim as match_value,row_num from 
+(select  item,match_item,sim, row_number() over (partition by item order by sim desc)  as row_num from 
+(select * from test_all_sim where sim>0.1 and item<>match_item) a ) t where row_num<=500;
+
+--drop table if exists test_all_sim_top500_online;
+--create table if not exists test_all_sim_top500_online as select titem,mitem,match_value,row_num,
+--(case when titem<mitem then mitem else titem end ) as  item1,  (case when titem<mitem then titem else mitem end )as  item2 from  test_all_sim_top500;
+
+
+drop table if exists val_all_sim_top500;
+create table if not exists val_all_sim_top500 as 
+select * from val_all_sim where row_num<=500;
+

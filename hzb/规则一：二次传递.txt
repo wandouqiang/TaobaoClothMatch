@@ -1,0 +1,54 @@
+测试T与A相似,A与B搭配，B与同类中C相似，可认为T与C搭配
+----input: test_matchpairs_sim_xzk 测试与同类专家商品相似度  
+---input matchpairs_all_sim_xzk 专家商品与同类所有商品相似度
+
+
+---21662 test_not_in_history
+--drop table if exists test_not_in_history;
+create table if not exists test_not_in_history as select distinct item from 
+(select a.item_id as item,(case when b.create_at>0 then 1 else 0 end) as flag from 
+tianchi_fm.half_test_items a left outer join  tianchi_fm.user_bought_history b on a.item_id=b.item_id) t where flag=0;
+
+
+
+-- table if exists test_mpitem1_sim_sorted;
+--create table if not exists test_mpitem1_sim_sorted as select titem,mpitem1,sim1 from test_mpitem1_sim distribute by titem sort by titem,sim1 desc;
+
+drop table if exists test_mp_sim_top50;
+create table if not exists test_mp_sim_top50 as select  item1 as titem,item2 as mpitem1,sim as sim1 from 
+(select item1,item2,sim, row_number() over (partition by item1 order by sim desc)  as row_num from test_matchpairs_sim_xzk ) t where row_num<=200; 
+
+--select * from test_mp_sim_top50;
+
+drop table if exists test_mp_sim;
+create table if not exists test_mp_sim as 
+select  a.titem,a.mpitem1,b.item2 as mpitem2,(a.sim1+b.count/10000) as sim1 from test_mp_sim_top50 a join 
+matchpairs2 b 
+on a.mpitem1=b.item1;
+
+
+--drop table if exists mpitem_item_sim;
+create table if not exists mpitem_item_sim as select  item1,item2,sim, row_number() over (partition by item1 order by sim desc)  as row_num from 
+(select * from matchpairs_all_sim_xzk where sim>0.6) a;
+
+--select * from mpitem_item_sim_temp;
+drop table if exists test_mp_ritem_sim;
+create table if not exists test_mp_ritem_sim as select a.*,b.item2 as mitem,(a.sim1+0.1*b.sim) as match_value from
+test_mp_sim a join 
+(select * from mpitem_item_sim where row_num<=15) b on a.mpitem2=b.item1;
+
+
+drop table if exists test_ritem_sim_final;
+create table if not exists test_ritem_sim_final as 
+select titem,mitem,max(sim1) as sim1,(max(match_value)+0.000000001*count(match_value) ) as match_value from
+test_mp_ritem_sim group by titem,mitem ;
+
+
+--drop table if exists test_mp_ritem_sim_final_sort;
+--create table if not exists test_mp_ritem_sim_final_sort as select titem,mitem,match_value from test_ritem_sim_final distribute by titem sort by titem,match_value desc;
+
+drop table if exists test_mp_sim;
+create table if not exists test_mp_sim as select  titem,mitem,sim1,match_value, row_number() over (partition by titem order by match_value desc)  as row_num from test_ritem_sim_final;
+
+drop table if exists test_mp_sim_top200;
+create table if not exists test_mp_sim_top200 as select * from test_mp_sim  where row_num<=200;

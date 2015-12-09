@@ -1,0 +1,37 @@
+--odps sql 
+--********************************************************************--
+--author:xuzeke
+--create time:2015-12-07 14:57:34
+--********************************************************************--
+--------------------------------------------------------------------------------
+                               --计算百搭商品--
+--------------------------------------------------------------------------------
+--722516
+drop table if exists common_match_online_xzk;
+create table common_match_online_xzk as 
+select cat_id,item,score from
+  (select cat_id,item2 as item,-1*count(item2) as score from
+     (select b.cat_id,a.item2,count from matchpairs2 a join tianchi_fm.dim_items b on a.item1 = b.item_id)c 
+      group by cat_id,item2
+  )d;
+--------------------------------------------------------------------------------
+                           --计算测试商品的百搭候选对--
+--------------------------------------------------------------------------------
+--1112937737
+drop table if exists common_match_of_test_online_xzk;
+create table common_match_of_test_online_xzk as select c.item as item1,d.item as item2,d.score from 
+(select a.item,b.cat_id from testItem_in_history_xzk a join tianchi_fm.dim_items b on a.item = b.item_id)c
+join common_match_online_xzk d
+on c.cat_id = d.cat_id;
+--------------------------------------------------------------------------------
+                                  --统计--
+--------------------------------------------------------------------------------
+--字段：item1，item2，score
+--1112937737
+select count(*) from common_match_of_test_online_xzk;
+--1112937737
+select count(distinct item1,item2) from common_match_of_test_online_xzk;
+--32827
+select count(distinct item1) from common_match_of_test_online_xzk;
+--(-452,-1)
+select min(score),max(score) from common_match_of_test_online_xzk;

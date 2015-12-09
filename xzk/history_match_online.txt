@@ -1,0 +1,80 @@
+--odps sql 
+--********************************************************************--
+--author:xuzeke
+--create time:2015-12-07 12:29:55
+--********************************************************************--
+--------------------------------------------------------------------------------
+                              --过滤历史数据--
+--------------------------------------------------------------------------------
+--23937689 data
+drop table if exists filter_history_data_online_xzk;
+create table filter_history_data_online_xzk as
+select a.* from tianchi_fm.user_bought_history a 
+join testItem_in_history_xzk b
+on a.item_id = b.item;
+--------------------------------------------------------------------------------
+                              --计算历史搭配对--
+--------------------------------------------------------------------------------
+--前6天后14天内，同一用户购买
+--294855680 pair
+drop table if exists history_pair_with_time_online_xzk;
+create table history_pair_with_time_online_xzk as
+select  (case when a.item_id>b.item_id then a.item_id else b.item_id end)as item1,
+        (case when a.item_id>b.item_id then b.item_id else a.item_id end)as item2,
+        a.user_id,abs(datediff(to_date(b.create_at,'yyyymmdd'),to_date(a.create_at,'yyyymmdd'),'dd')) as delta_day 
+from filter_history_data_online_xzk a 
+join tianchi_fm.user_bought_history b
+on a.user_id = b.user_id 
+where datediff(to_date(b.create_at,'yyyymmdd'),to_date(a.create_at,'yyyymmdd'),'dd') < 14
+and datediff(to_date(b.create_at,'yyyymmdd'),to_date(a.create_at,'yyyymmdd'),'dd') >-6;
+--过滤同id同类别，计算购买用户数
+--131641071 pair
+drop table if exists history_match_with_num_online_xzk;
+create table history_match_with_num_online_xzk as
+select item1,item2,count(user_id) as count from 
+(select distinct item1,item2,user_id from
+ (select c.*,d.cat_id as cat2 from 
+       (select a.*,b.cat_id as cat1 from history_pair_with_time_online_xzk a join tianchi_fm.dim_items b on a.item1 = b.item_id)c
+        join tianchi_fm.dim_items d on c.item2 = d.item_id
+ )e
+ where item1<>item2 and cat1<>cat2
+)f group by item1,item2;
+--统计历史搭配对的购买用户数，购买时间差以及置信度
+--131641071 pair
+drop table if exists  history_match_info_online_xzk;
+create table history_match_info_online_xzk as 
+select item1,item2,count,delta_day,(delta_day-count*0.5) as score from(
+select item1, item2,count,min(delta_day) as delta_day from (
+select a.item1,a.item2,a.delta_day,b.count from 
+history_pair_with_time_online_xzk a
+join 
+history_match_with_num_online_xzk b
+on a.item1=b.item1 and a.item2=b.item2
+)c 
+group by item1,item2,count
+)d;
+--------------------------------------------------------------------------------
+                         --计算测试商品的历史搭配候选对--
+--------------------------------------------------------------------------------
+--263282142 pair
+drop table if exists history_match_online_xzk;
+create table history_match_online_xzk as select * from
+(select * from history_match_info_online_xzk
+ union all
+ select item2 as item1,item1 as item2,count,delta_day,score from history_match_info_online_xzk)a;
+--134506081 pair
+drop table if exists history_match_of_test_online_xzk;
+create table history_match_of_test_online_xzk as select a.* from 
+history_match_online_xzk a join testItem_in_history_xzk b on a.item1 = b.item;
+--------------------------------------------------------------------------------
+                                  --统计--
+--------------------------------------------------------------------------------
+--字段：item1，item2，count，delta_day，score
+--134506081
+select count(*) from history_match_of_test_online_xzk;
+--134506081
+select count(distinct item1,item2) from history_match_of_test_online_xzk;
+--32827
+select count(distinct item1) from history_match_of_test_online_xzk;
+--(-3402.5,12.5)
+select min(score),max(score) from history_match_of_test_online_xzk;

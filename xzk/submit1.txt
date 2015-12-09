@@ -1,0 +1,78 @@
+--odps sql 
+--********************************************************************--
+--author:xuzeke
+--create time:2015-12-07 15:48:21
+--********************************************************************--
+
+--------------------------------------------------------------------------------
+                          --历史搭配top100+百搭top50--
+--------------------------------------------------------------------------------
+drop table if exists cat_bias_xzk;
+create table cat_bias_xzk as
+select cat,row_number() over (partition by flag order by num) as row_num 
+from (select 1 as flag,cat,num from cat_distribute_xzk)a;
+
+drop table if exists history_match_top100_online_xzk;
+create table history_match_top100_online_xzk as 
+select d.item1,d.item2,(d.score-0.00001*e.row_num)as score from
+  (select b.item1,b.item2,b.score,c.cat_id as cat from
+   (select item1,item2,score from
+      (select item1,item2,score,row_number() over (partition by item1 order by score) as row_num 
+       from history_match_of_test_online_xzk)a 
+    where row_num<=100
+   )b 
+   join tianchi_fm.dim_items c on b.item2 = c.item_id
+  )d join cat_bias_xzk e on d.cat = e.cat;
+  
+drop table if exists history_match_top100_online_new_xzk;
+create table history_match_top100_online_new_xzk as select item1,item2,score from
+    (select item1,item2,score,row_number() over (partition by item1 order by score) as row_num 
+       from history_match_top100_online_xzk)a 
+    where row_num<=100;
+
+drop table if exists history_and_common_match_top150_online_xzk;
+create table history_and_common_match_top150_online_xzk as select item1,item2,score from 
+   (select item1,item2,score,row_number() over (partition by item1 order by score) as row_num from
+    (select distinct item1,item2,score from
+     (select item1,item2,min(score) as score from 
+       (select item1,item2,score from history_match_top100_online_new_xzk 
+           union all
+        select item1,item2,cast((score+1000) as double) as score from common_match_of_test_online_xzk
+       )a 
+      group by item1,item2
+     )b
+    )c
+   )d 
+where row_num<=150;
+--------------------------------------------------------------------------------
+            --历史搭配top100+百搭top50+相似top50--
+--------------------------------------------------------------------------------
+drop table if exists all_sim_match_of_test_online_xzk;
+create table all_sim_match_of_test_online_xzk as select a.titem as item1,mitem as item2,-1*match_value as score from 
+test_all_sim_predict_sort a join testItem_in_history_xzk b on a.titem = b.item;
+
+drop table if exists submit_top200_online_xzk;
+create table submit_top200_online_xzk as select item1,item2,score from 
+   (select item1,item2,score,row_number() over (partition by item1 order by score) as row_num from
+    (select distinct item1,item2,score from
+     (select item1,item2,min(score) as score from 
+       (select item1,item2,score from history_and_common_match_top150_online_xzk 
+           union all
+        select item1,item2,cast((score+2000) as double) as score from all_sim_match_of_test_online_xzk
+       )a 
+      group by item1,item2
+     )b
+    )c
+   )d 
+where row_num<=200;
+--------------------------------------------------------------------------------
+                                 --提交--
+--------------------------------------------------------------------------------
+drop table if exists submit_online_xzk;
+create table submit_online_xzk as 
+select item1 as item_id, split_part(wm_concat(',',item2),',',1,200) as item_list
+from submit_top200_online_xzk 
+group by item1;
+
+select * from submit_online_xzk;
+select count(distinct item_id) from submit_online_xzk;

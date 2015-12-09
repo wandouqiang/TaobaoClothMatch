@@ -1,0 +1,89 @@
+--------------------------------------------------------------------------------
+                        --统计每个类搭配商品的分词对出现次数--
+--------------------------------------------------------------------------------
+drop table if exists filter_matchpairs2_xzk;
+create table filter_matchpairs2_xzk as select c.*,d.cat_id as cat1 from
+(select a.item1,a.item2 from matchpairs2 a join sameCat_item_in_matchpairs b on a.item1=b.item)c
+join tianchi_fm.dim_items d on c.item1 = d.item_id;
+
+drop table if exists item_terms_pair_xzk;
+create table item_terms_pair_xzk as 
+select terms2pair(c.cat1,c.item1,c.item2,c.terms,d.terms) as (cat1,item1,item2,term1,term2) from
+(select a.*,b.terms from filter_matchpairs2_xzk a join tianchi_fm.dim_items b on a.item1 = b.item_id)c
+join tianchi_fm.dim_items d on c.item2 = d.item_id;
+
+drop table if exists cat_terms_pair_xzk;
+create table cat_terms_pair_xzk as select cat1,term1,term2,count(term2) as count from 
+(select cat1,term1,term2 from item_terms_pair_xzk
+ union all 
+ select cat1,term2 as term1,term1 as term2 from item_terms_pair_xzk)a
+group by cat1,term1,term2;
+--------------------------------------------------------------------------------
+                        --提取线上样本对的分词对及出现次数--
+--------------------------------------------------------------------------------
+drop table if exists feat_detail_test_3_termPair;
+create table feat_detail_test_3_termPair as 
+select terms2pair(cat1,item1,item2,terms1,terms2) as (cat1,item1,item2,term1,term2) from
+feat_detail_test_3;
+
+drop table if exists feat_detail_test_3_new;
+create table feat_detail_test_3_new as select a.cat1,a.item1,a.item2,a.term1,a.term2,b.count from 
+feat_detail_test_3_termPair a join cat_terms_pair_xzk b on a.cat1 = b.cat1 and a.term1 = b.term1 and a.term2 = b.term2;
+
+drop table if exists feat_detail_test_3_new_a;
+create table feat_detail_test_3_new_a as select cat1,item1,item2,term1,term2,count,row_num from
+(select cat1,item1,item2,term1,term2,count,row_number() over (partition by item1,item2 order by count desc) as row_num 
+from feat_detail_test_3_new)a where row_num<=5;
+--------------------------------------------------------------------------------
+                               --基于分词对做特征--
+--------------------------------------------------------------------------------
+drop table if exists feat_detail_test_3_new_a1;
+create table feat_detail_test_3_new_a1 as select item1,item2,count from feat_detail_test_3_new_a where row_num = 1;
+
+drop table if exists feat_detail_test_3_new_a2;
+create table feat_detail_test_3_new_a2 as select item1,item2,count from feat_detail_test_3_new_a where row_num = 2;
+
+drop table if exists feat_detail_test_3_new_a3;
+create table feat_detail_test_3_new_a3 as select item1,item2,count from feat_detail_test_3_new_a where row_num = 3;
+
+drop table if exists feat_detail_test_3_new_a4;
+create table feat_detail_test_3_new_a4 as select item1,item2,count from feat_detail_test_3_new_a where row_num = 4;
+
+drop table if exists feat_detail_test_3_new_a5;
+create table feat_detail_test_3_new_a5 as select item1,item2,count from feat_detail_test_3_new_a where row_num = 5;
+
+drop table if exists feat_detail_test_3_new_num;
+create table feat_detail_test_3_new_num as select item1,item2,count(item2) as num from feat_detail_test_3_new group by item1,item2;
+
+drop table if exists feat_detail_test_3_new_mean;
+create table feat_detail_test_3_new_mean as select item1,item2,avg(count) as mean from feat_detail_test_3_new_a group by item1,item2;
+--------------------------------------------------------------------------------
+                              --合并特征--
+--------------------------------------------------------------------------------
+drop table if exists feat_test_xzk1;
+create table feat_test_xzk1 as select a.*,(case when b.count>0 then b.count else 0 end)as item_pair1
+from feat_test a left outer join feat_detail_test_3_new_a1 b on a.item1 = b.item1 and a.item2 = b.item2;
+
+drop table if exists feat_test_xzk2;
+create table feat_test_xzk2 as select a.*,(case when b.count>0 then b.count else 0 end)as item_pair2
+from feat_test_xzk1 a left outer join feat_detail_test_3_new_a2 b on a.item1 = b.item1 and a.item2 = b.item2;
+
+drop table if exists feat_test_xzk3;
+create table feat_test_xzk3 as select a.*,(case when b.count>0 then b.count else 0 end)as item_pair3
+from feat_test_xzk2 a left outer join feat_detail_test_3_new_a3 b on a.item1 = b.item1 and a.item2 = b.item2;
+
+drop table if exists feat_test_xzk4;
+create table feat_test_xzk4 as select a.*,(case when b.count>0 then b.count else 0 end)as item_pair4
+from feat_test_xzk3 a left outer join feat_detail_test_3_new_a4 b on a.item1 = b.item1 and a.item2 = b.item2;
+
+drop table if exists feat_test_xzk5;
+create table feat_test_xzk5 as select a.*,(case when b.count>0 then b.count else 0 end)as item_pair5
+from feat_test_xzk4 a left outer join feat_detail_test_3_new_a5 b on a.item1 = b.item1 and a.item2 = b.item2;
+
+drop table if exists feat_test_xzk6;
+create table feat_test_xzk6 as select a.*,(case when b.num>0 then b.num else 0 end)as item_pair6
+from feat_test_xzk5 a left outer join feat_detail_test_3_new_num b on a.item1 = b.item1 and a.item2 = b.item2;
+
+drop table if exists feat_test_xzk;
+create table feat_test_xzk as select a.*,(case when b.mean>0 then b.mean else 0 end)as item_pair7
+from feat_test_xzk6 a left outer join feat_detail_test_3_new_mean b on a.item1 = b.item1 and a.item2 = b.item2;
